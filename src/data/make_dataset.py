@@ -49,6 +49,7 @@ def extract_and_encode_sel_vector(dataframe, tokenizer):
     dataframe["text_vector"] = ''
     dataframe["selected_text_vector"] = ''
     dataframe["inter_vector"] = ''
+    dataframe["span"] = ""
     with futures.ThreadPoolExecutor(max_workers=1) as executor:
         future_text = {
             executor.submit(extract_and_encode_sel_vector_thread, df_entry, df_idx, tokenizer):
@@ -57,8 +58,11 @@ def extract_and_encode_sel_vector(dataframe, tokenizer):
             res = future.result()
             dataframe.at[res[0], 'text_vector'] = res[1]
             dataframe.at[res[0], 'selected_text_vector'] = res[2]
-            dataframe.at[res[0], 'inter_vector'] = res[-1]
+            dataframe.at[res[0], 'inter_vector'] = res[3]
+            dataframe.at[res[0], 'span'] = res[-1]
 
+    dataframe = dataframe[dataframe['selected_vector'] != []]
+    dataframe = dataframe.reset_index(drop=True)
     return dataframe
 
 
@@ -67,11 +71,11 @@ def extract_and_encode_sel_vector_thread(df_entry, df_idx, tokenizer):
     selected_text_sub_tokens = []
     inter_vector = []
     start_offset = df_entry['text'].find(df_entry['selected_text'])
+    start_index = -1
+    end_index = -1
     if start_offset != -1:
         inter_vector = [0] * len(text_sub_tokens)
         end_offset = start_offset + len(df_entry['selected_text'])
-        start_index = -1
-        end_index = -1
         for idx_offset, offset in enumerate(text_sub_tokens.offsets):
             if offset[0] <= start_offset <= offset[1]:
                 start_index = idx_offset
@@ -80,7 +84,8 @@ def extract_and_encode_sel_vector_thread(df_entry, df_idx, tokenizer):
                 break
         selected_text_sub_tokens = text_sub_tokens.ids[start_index:end_index + 1]
         inter_vector[start_index:len(selected_text_sub_tokens)] = [1] * len(selected_text_sub_tokens)
-    return df_idx, text_sub_tokens.ids, selected_text_sub_tokens, inter_vector
+    return df_idx, text_sub_tokens.ids, selected_text_sub_tokens, inter_vector, \
+           [start_index, end_index]
 
 
 def write_learning_dataset(path, dataframe):
