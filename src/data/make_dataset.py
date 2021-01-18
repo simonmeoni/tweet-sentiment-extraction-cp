@@ -27,18 +27,20 @@ def main(input_filepath, output_filepath, model):
     train = lowercase_and_replace_url(train, 'selected_text')
     test = lowercase_and_replace_url(test, 'text')
     if model != '':
-        write_learning_dataset(output_filepath + '/tokenizer_dataset.txt',
+        tokenizer_dataset_path = output_filepath + '/tokenizer-{}.txt'.format(model)
+        write_learning_dataset(tokenizer_dataset_path,
                                pd.concat([train, test], ignore_index=True))
 
         tokenizer = Tokenizer(models.BPE())
+
         trainer = BpeTrainer(vocab_size=8000, min_frequency=2,
                              special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"],
                              show_progress=True)
-        tokenizer.train([output_filepath + '/tokenizer_dataset.txt'], trainer=trainer)
-        tokenizer.save(output_filepath + "/from_scratch-tokenizer.json")
+        tokenizer.train(trainer, [tokenizer_dataset_path])
+        tokenizer.save(tokenizer_dataset_path.replace(".txt", ".json"))
     train = extract_span(train)
-    train.to_pickle(output_filepath + '/train_processed_{}.pickle'.format(model))
-    test.to_pickle(output_filepath + '/test_processed_{}.pickle'.format(model))
+    train.to_pickle(output_filepath + '/train_processed.pickle')
+    test.to_pickle(output_filepath + '/test_processed.pickle')
 
 
 def extract_span(dataframe):
