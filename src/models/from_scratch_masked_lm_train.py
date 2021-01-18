@@ -1,3 +1,7 @@
+import logging
+from pathlib import Path
+
+from dotenv import find_dotenv, load_dotenv
 from tokenizers.models import BPE
 from transformers import BertModel
 
@@ -14,52 +18,49 @@ from transformers import BertModel, DistilBertForMaskedLM, DistilBertConfig, Enc
 
 from src.data.tweet_se_dataset import TweetSentimentExtractionDataset
 
-tokenizer = BPE(
-    vocab=vocabulary_path,
-    merges=merges_path,
-)
 
-with open(configfile, "r") as f:
-    config = json.load(f)
+def init_model(vocabulary_path=None, merges_path=None, configfile=None):
+    tokenizer = BPE(
+        vocab=vocabulary_path,
+        merges=merges_path,
+    )
 
-modelparams = config["model_params"]
+    with open(configfile, "r") as f:
+        config = json.load(f)
 
-batch_size = modelparams["batch_size"]
-dataset = TweetSentimentExtractionDataset(merges_path)
-dataloader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False,
-                                         drop_last=True, collate_fn=dataset.collate_function)
+    model_params = config["model_params"]
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print("Using device:", device)
+    batch_size = model_params["batch_size"]
+    dataset = TweetSentimentExtractionDataset(merges_path)
+    dataloader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False,
+                                             drop_last=True, collate_fn=dataset.collate_function)
 
-print("Loading models ..")
-vocab_size = modelparams["vocab_size"]
-max_length = modelparams["max_length"]
-model_config = DistilBertConfig(vocab_size=vocab_size,
-                                max_position_embeddings=max_length,
-                                num_attention_heads=modelparams["num_attn_heads"],
-                                num_hidden_layers=modelparams["num_hidden_layers"],
-                                hidden_size=modelparams["hidden_size"],
-                                type_vocab_size=1,
-                                dropout=0.1,
-                                attention_dropout=0.1,
-                                pad_token_id=0)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print("Using device:", device)
 
-model = DistilBertForMaskedLM(config=model_config)
-model.to(device)
+    print("Loading models ..")
+    vocab_size = model_params["vocab_size"]
+    max_length = model_params["max_length"]
+    model_config = DistilBertConfig(vocab_size=vocab_size,
+                                    max_position_embeddings=max_length,
+                                    num_attention_heads=model_params["num_attn_heads"],
+                                    num_hidden_layers=model_params["num_hidden_layers"],
+                                    hidden_size=model_params["hidden_size"],
+                                    type_vocab_size=1,
+                                    dropout=0.1,
+                                    attention_dropout=0.1,
+                                    pad_token_id=0)
+
+    model = DistilBertForMaskedLM(config=model_config)
+    model.to(device)
+    return model, tokenizer
 
 
 def count_parameters(mdl):
     return sum(p.numel() for p in mdl.parameters() if p.requires_grad)
 
 
-print(f'The model has {count_parameters(model):,} trainable parameters')
-
-optimizer = optim.Adam(model.parameters(), lr=modelparams['lr'])
-criterion = nn.NLLLoss(ignore_index=tokenizer.token_to_id('[PAD]'))
-
-
-def compute_loss(predictions, targets):
+def compute_loss(predictions, targets, criterion=None):
     predictions = predictions[:, :-1, :].contiguous()
     targets = targets[:, 1:]
 
@@ -71,7 +72,7 @@ def compute_loss(predictions, targets):
     return loss
 
 
-def train_model():
+def train_model(model=None, dataloader=None, optimizer=None, device=None):
     model.train()
     epoch_loss = 0
 
@@ -82,7 +83,7 @@ def train_model():
         out = model(input_ids=batch, attention_mask=batch)
         prediction_scores = out[1]
         predictions = F.log_softmax(prediction_scores, dim=2)
-        loss = compute_loss(predictions, y_targets)
+        loss = compute_loss(predictions, y_targets, criterion)
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -91,7 +92,7 @@ def train_model():
         epoch_loss += loss.item()
 
 
-def eval_model():
+def eval_model(model=None, dataloader=None, optimizer=None, device=None):
     model.eval()
     epoch_loss = 0
 
@@ -109,17 +110,40 @@ def eval_model():
 
 
 
-# MAIN TRAINING LOOP
-for epoch in range(modelparams['num_epochs']):
-    print("Starting epoch", epoch + 1)
-    # TODO CV here
-    train_model()
-    eval_model()
+def main(input_filepath, output_filepath, model, modelparams=None):
+    model, tokenizer = init_model()
 
-print("Saving model ..")
-save_location = modelparams['model_path']
-model_name = modelparams['model_name']
-if not os.path.exists(save_location):
-    os.makedirs(save_location)
-save_location = os.path.join(save_location, model_name)
-torch.save(model, save_location)
+    print(f'The model has {count_parameters(model):,} trainable parameters')
+
+    optimizer = optim.Adam(model.parameters(), lr=modelparams['lr'])
+    criterion = nn.NLLLoss(ignore_index=tokenizer.token_to_id('[PAD]'))
+
+    # MAIN TRAINING LOOP
+    for epoch in range(modelparams['num_epochs']):
+        print("Starting epoch", epoch + 1)
+        # TODO CV here
+        train_model()
+        eval_model()
+
+    print("Saving model ..")
+    #TODO use instead huggingface method
+    save_location = modelparams['model_path']
+    model_name = modelparams['model_name']
+    if not os.path.exists(save_location):
+        os.makedirs(save_location)
+    save_location = os.path.join(save_location, model_name)
+    torch.save(model, save_location)
+
+
+if __name__ == '__main__':
+    LOG_FMT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    logging.basicConfig(level=logging.INFO, format=LOG_FMT)
+
+    # not used in this stub but often useful for finding various files
+    project_dir = Path(__file__).resolve().parents[2]
+
+    # find .env automagically by walking up directories until it's found, then
+    # load up the .env entries as environment variables
+    load_dotenv(find_dotenv())
+    # pylint: disable=no-value-for-parameter
+    main()
