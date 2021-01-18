@@ -8,15 +8,15 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-
+import pandas as pd
 from transformers import BertTokenizerFast
-from transformers import BertModel, BertForMaskedLM, BertConfig, EncoderDecoderModel
+from transformers import BertModel, DistilBertForMaskedLM, DistilBertConfig, EncoderDecoderModel
 
 from src.data.tweet_se_dataset import TweetSentimentExtractionDataset
 
 tokenizer = BPE(
-    "./models/EsperBERTo-small/vocab.json",
-    "./models/EsperBERTo-small/merges.txt",
+    vocab=vocabulary_path,
+    merges=merges_path,
 )
 
 with open(configfile, "r") as f:
@@ -25,44 +25,45 @@ with open(configfile, "r") as f:
 modelparams = config["model_params"]
 
 batch_size = modelparams["batch_size"]
-train_dataset = TweetSentimentExtractionDataset(train_en_file, train_de_file, en_tokenizer, de_tokenizer, enc_maxlength, dec_maxlength)
-train_dataloader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False, drop_last=True, collate_fn=train_dataset.collate_function)
+dataset = TweetSentimentExtractionDataset(merges_path)
+dataloader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False,
+                                         drop_last=True, collate_fn=dataset.collate_function)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print("Using device:", device)
 
 print("Loading models ..")
-vocabsize = modelparams["vocab_size"]
+vocab_size = modelparams["vocab_size"]
 max_length = modelparams["max_length"]
-model_config = BertConfig(vocab_size = vocabsize,
-                    max_position_embeddings = max_length+64, # this shuold be some large value
-                    num_attention_heads = modelparams["num_attn_heads"],
-                    num_hidden_layers = modelparams["num_hidden_layers"],
-                    hidden_size = modelparams["hidden_size"],
-                    type_vocab_size = 1,
-                    is_decoder=True)
+model_config = DistilBertConfig(vocab_size=vocab_size,
+                                max_position_embeddings=max_length,
+                                num_attention_heads=modelparams["num_attn_heads"],
+                                num_hidden_layers=modelparams["num_hidden_layers"],
+                                hidden_size=modelparams["hidden_size"],
+                                type_vocab_size=1,
+                                dropout=0.1,
+                                attention_dropout=0.1,
+                                pad_token_id=0)
 
-
-model = BertForMaskedLM(config=model_config)
+model = DistilBertForMaskedLM(config=model_config)
 model.to(device)
 
 
 def count_parameters(mdl):
     return sum(p.numel() for p in mdl.parameters() if p.requires_grad)
+
+
 print(f'The model has {count_parameters(model):,} trainable parameters')
 
 optimizer = optim.Adam(model.parameters(), lr=modelparams['lr'])
 criterion = nn.NLLLoss(ignore_index=tokenizer.token_to_id('[PAD]'))
 
-num_train_batches = len(train_dataloader)
-
 
 def compute_loss(predictions, targets):
-    """Compute our custom loss"""
     predictions = predictions[:, :-1, :].contiguous()
     targets = targets[:, 1:]
 
-    rearranged_output = predictions.view(predictions.shape[0]*predictions.shape[1], -1)
+    rearranged_output = predictions.view(predictions.shape[0] * predictions.shape[1], -1)
     rearranged_target = targets.contiguous().view(-1)
 
     loss = criterion(rearranged_output, rearranged_target)
@@ -74,14 +75,11 @@ def train_model():
     model.train()
     epoch_loss = 0
 
-    for i, (batch) in enumerate(train_dataloader):
-
+    for i, (batch) in enumerate(dataloader):
         optimizer.zero_grad()
 
         batch = batch.to(device)
-
-        out = model(input_ids=en_input, attention_mask=en_masks,
-                                        decoder_input_ids=de_output, decoder_attention_mask=de_masks,lm_labels=lm_labels)
+        out = model(input_ids=batch, attention_mask=batch)
         prediction_scores = out[1]
         predictions = F.log_softmax(prediction_scores, dim=2)
         loss = compute_loss(predictions, y_targets)
@@ -92,34 +90,29 @@ def train_model():
 
         epoch_loss += loss.item()
 
-    print("Mean epoch loss:", (epoch_loss / num_train_batches))
-
 
 def eval_model():
     model.eval()
     epoch_loss = 0
 
-    for i, batch in enumerate(train_dataloader):
-
+    for i, batch in enumerate(dataloader):
         optimizer.zero_grad()
 
         en_input = batch.to(device)
 
-        out = model(input_ids=en_input, attention_mask=en_masks,
-                                        decoder_input_ids=de_output, decoder_attention_mask=de_masks,lm_labels=lm_labels)
+        out = model(input_ids=batch, attention_mask=batch)
 
         prediction_scores = out[1]
         predictions = F.log_softmax(prediction_scores, dim=2)
         loss = compute_loss(predictions, y_targets)
         epoch_loss += loss.item()
 
-    print("Mean validation loss:", (epoch_loss / num_valid_batches))
 
 
 # MAIN TRAINING LOOP
 for epoch in range(modelparams['num_epochs']):
-    print("Starting epoch", epoch+1)
-    #TODO CV here
+    print("Starting epoch", epoch + 1)
+    # TODO CV here
     train_model()
     eval_model()
 
