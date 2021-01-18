@@ -1,0 +1,11 @@
+{
+  "batch_size": 64,
+  "max_length": 512,
+  "num_attn_heads": 6,
+  "num_hidden_layers": 8,
+  "hidden_size": 768,
+  "lr": 1e-4,
+  "num_epochs": 5,
+  "model_name": "distillbert-tweet-se",
+  "model_path": "tweet-sentiment-extraction-cp/models/pretrained"
+}

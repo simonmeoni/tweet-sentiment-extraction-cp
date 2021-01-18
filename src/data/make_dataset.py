@@ -37,7 +37,7 @@ def main(input_filepath, output_filepath, model):
                              special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"],
                              show_progress=True)
         tokenizer.train(trainer, [tokenizer_dataset_path])
-        tokenizer.save(tokenizer_dataset_path.replace(".txt", ".json"))
+        tokenizer.save((output_filepath + '/tokenizer-{}.json').format(model), True)
     train = extract_span(train)
     train.to_pickle(output_filepath + '/train_processed.pickle')
     test.to_pickle(output_filepath + '/test_processed.pickle')

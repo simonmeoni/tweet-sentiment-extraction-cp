@@ -27,6 +27,8 @@ urllib3 @ file:///home/conda/feedstock_root/build_artifacts/urllib3_160522576584
 whichcraft==0.6.1
 
 pandas~=1.2.0
-tokenizers~=0.10.0
+tokenizers~=0.9.4
 python-dotenv~=0.15.0
-setuptools~=49.6.0.post20210108
+setuptools~=49.6.0
+torch~=1.7.1
+transformers~=4.2.1
