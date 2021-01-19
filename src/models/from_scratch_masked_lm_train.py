@@ -9,6 +9,7 @@ import click
 import torch
 import torch.nn as nn
 import torch.nn.functional as f
+import wandb
 import torch.optim as optim
 from dotenv import find_dotenv, load_dotenv
 from numpy import mean
@@ -18,6 +19,7 @@ from torch.utils.data import DataLoader
 from src.data.masked_lm_tse_dataset import MaskedLMTweetDataset, masked_lm_collate
 from sklearn.model_selection import KFold
 
+wandb.init(project="tweet-se-competition")
 
 def init_model(tokenizer, config, device):
     print("🍌 Loading model...")
@@ -57,7 +59,7 @@ def compute_loss(predictions, targets, criterion=None):
     return loss
 
 
-def train_model(model, dataloader, optimizer, criterion, device):
+def train_model(model, dataloader, optimizer, criterion, device, id_fold):
     model.train()
     epoch_loss = []
     for batch in dataloader:
@@ -70,12 +72,13 @@ def train_model(model, dataloader, optimizer, criterion, device):
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
+        wandb.log({"loss {}".format(id_fold): loss.item()})
         epoch_loss.append(loss.item())
         break
     print('train epoch loss : {}'.format(mean(epoch_loss)))
 
 
-def eval_model(model, dataloader, optimizer, criterion, device):
+def eval_model(model, dataloader, optimizer, criterion, device, id_fold):
     model.eval()
     epoch_loss = []
     for batch in dataloader:
@@ -86,8 +89,8 @@ def eval_model(model, dataloader, optimizer, criterion, device):
         predictions = f.log_softmax(prediction_scores, dim=2)
         loss = compute_loss(predictions, batch['inputs_ids'], criterion)
         epoch_loss.append(loss.item())
+        wandb.log({"CV loss {}".format(id_fold): mean(loss.item())})
         break
-    print('CV epoch loss : {}'.format(mean(epoch_loss)))
     return mean(epoch_loss)
 
 
@@ -126,9 +129,10 @@ def main(tokenizer_path, dataset_path, model_parameters_path):
         eval_dataloader = DataLoader(dataset=eval_dataset, batch_size=config["batch_size"],
                                      shuffle=False, drop_last=True, collate_fn=masked_lm_collate)
 
+        wandb.watch(model)
         for epoch in range(config['num_epochs']):
             print("Starting epoch", epoch + 1)
-            train_model(model, train_dataloader, optimizer, criterion, device)
+            train_model(model, train_dataloader, optimizer, criterion, device, id_fold)
         print("Saving model ..")
         current_datetime = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
         save_location = config['model_path']
@@ -138,7 +142,10 @@ def main(tokenizer_path, dataset_path, model_parameters_path):
         save_location = os.path.join(save_location, model_name)
         torch.save(model, save_location)
 
-        cv_score.append(eval_model(model, eval_dataloader, optimizer, criterion, device))
+        score = eval_model(model, eval_dataloader, optimizer, criterion, device, id_fold)
+        cv_score.append(score)
+        wandb.log({"CV score ": score})
+    print('CV score : {}'.format(cv_score))
 
 
 if __name__ == '__main__':

@@ -5,8 +5,8 @@
   "n_layers": 6,
   "hidden_dim": 512,
   "lr": 1e-4,
-  "num_epochs": 1,
-  "folds": 4,
+  "num_epochs": 2,
+  "folds": 2,
   "model_name": "distillbert-tweet-se",
   "model_path": "/home/simon/PycharmProjects/tweet-sentiment-extraction-cp/models/pretrained/distillbert/"
 }
