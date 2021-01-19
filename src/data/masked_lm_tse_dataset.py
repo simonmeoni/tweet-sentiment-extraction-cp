@@ -3,14 +3,11 @@ from torch.utils.data import Dataset
 
 
 class MaskedLMTweetDataset(Dataset):
-    def __init__(self, txt, tokenizer):
+    def __init__(self, dataset, tokenizer):
         self.tokenizer = tokenizer
-        self.dataset = []
+        self.dataset = dataset
         global PAD_ID
         PAD_ID = tokenizer.token_to_id("[PAD]")
-        with open(txt) as f:
-            for line in f:
-                self.dataset.append(line[:-1])
 
     def __getitem__(self, index):
         line = self.dataset[index]

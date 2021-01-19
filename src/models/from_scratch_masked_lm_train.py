@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 import glob
 
@@ -15,15 +16,11 @@ from tokenizers import Tokenizer
 from transformers import DistilBertForMaskedLM, DistilBertConfig
 from torch.utils.data import DataLoader
 from src.data.masked_lm_tse_dataset import MaskedLMTweetDataset, masked_lm_collate
+from sklearn.model_selection import KFold
 
 
-def init_model(tokenizer_path, dataset_path, config, device):
-    tokenizer = Tokenizer.from_file(glob.glob(tokenizer_path + '/*.json')[0])
-    batch_size = config["batch_size"]
-    dataset = MaskedLMTweetDataset(dataset_path, tokenizer)
-    dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False,
-                                             drop_last=True, collate_fn=masked_lm_collate)
-    print("🍌 Loading models...")
+def init_model(tokenizer, config, device):
+    print("🍌 Loading model...")
     max_length = config["max_length"]
     model_parameter_path = DistilBertConfig(vocab_size=tokenizer.get_vocab_size(),
                                             max_position_embeddings=max_length,
@@ -36,7 +33,14 @@ def init_model(tokenizer_path, dataset_path, config, device):
                                             pad_token_id=0)
     model = DistilBertForMaskedLM(config=model_parameter_path)
     model.to(device)
-    return model, tokenizer, dataloader
+    print(f'The model has {count_parameters(model):,} trainable parameters')
+    return model
+
+
+def init_tokenizer(tokenizer_path):
+    print("🍌 Loading tokenizer...")
+    tokenizer = Tokenizer.from_file(tokenizer_path)
+    return tokenizer
 
 
 def count_parameters(mdl):
@@ -55,7 +59,7 @@ def compute_loss(predictions, targets, criterion=None):
 
 def train_model(model, dataloader, optimizer, criterion, device):
     model.train()
-    epoch_loss = 0
+    epoch_loss = []
     for batch in dataloader:
         optimizer.zero_grad()
         out = model(input_ids=batch['inputs_ids'].to(device),
@@ -66,9 +70,25 @@ def train_model(model, dataloader, optimizer, criterion, device):
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
+        epoch_loss.append(loss.item())
+        break
+    print('train epoch loss : {}'.format(mean(epoch_loss)))
 
-        epoch_loss += loss.item()
-    print('mean epoch loss : ' + mean(epoch_loss))
+
+def eval_model(model, dataloader, optimizer, criterion, device):
+    model.eval()
+    epoch_loss = []
+    for batch in dataloader:
+        optimizer.zero_grad()
+        out = model(input_ids=batch['inputs_ids'].to(device),
+                    attention_mask=batch['attention_mask'].to(device))
+        prediction_scores = out.logits
+        predictions = f.log_softmax(prediction_scores, dim=2)
+        loss = compute_loss(predictions, batch['inputs_ids'], criterion)
+        epoch_loss.append(loss.item())
+        break
+    print('CV epoch loss : {}'.format(mean(epoch_loss)))
+    return mean(epoch_loss)
 
 
 @click.command()
@@ -78,26 +98,47 @@ def train_model(model, dataloader, optimizer, criterion, device):
 def main(tokenizer_path, dataset_path, model_parameters_path):
     with open(model_parameters_path, "r") as file:
         config = json.load(file)
+
+    txt_dataset = []
+    with open(dataset_path) as file:
+        for line in file:
+            txt_dataset.append(line[:-1])
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)
-    model, tokenizer, dataloader = init_model(tokenizer_path, dataset_path,
-                                              config, device)
-    print(f'The model has {count_parameters(model):,} trainable parameters')
-    optimizer = optim.Adam(model.parameters(), lr=config['lr'])
+    tokenizer = init_tokenizer(tokenizer_path)
     criterion = nn.NLLLoss(ignore_index=tokenizer.token_to_id('[PAD]'))
+    folds = KFold(n_splits=config['folds'], shuffle=False)
+    cv_score = []
+    for id_fold, fold in enumerate(folds.split(txt_dataset)):
+        print('beginning fold n°{}'.format(id_fold + 1))
+        model = init_model(tokenizer, config, device)
+        optimizer = optim.Adam(model.parameters(), lr=config['lr'])
 
-    # MAIN TRAINING LOOP
-    for epoch in range(config['num_epochs']):
-        print("Starting epoch", epoch + 1)
-        train_model(model, dataloader, optimizer, criterion, device)
+        train_fold, eval_fold = fold
+        train_fold = [txt_dataset[idx_train] for idx_train in train_fold]
+        eval_fold = [txt_dataset[idx_eval] for idx_eval in eval_fold]
+        train_dataset = MaskedLMTweetDataset(train_fold, tokenizer)
+        eval_dataset = MaskedLMTweetDataset(eval_fold, tokenizer)
 
-    print("Saving model ..")
-    save_location = config['model_path']
-    model_name = config['model_name']
-    if not os.path.exists(save_location):
-        os.makedirs(save_location)
-    save_location = os.path.join(save_location, model_name)
-    torch.save(model, save_location)
+        train_dataloader = DataLoader(dataset=train_dataset, batch_size=config["batch_size"],
+                                      shuffle=False, drop_last=True, collate_fn=masked_lm_collate)
+        eval_dataloader = DataLoader(dataset=eval_dataset, batch_size=config["batch_size"],
+                                     shuffle=False, drop_last=True, collate_fn=masked_lm_collate)
+
+        for epoch in range(config['num_epochs']):
+            print("Starting epoch", epoch + 1)
+            train_model(model, train_dataloader, optimizer, criterion, device)
+        print("Saving model ..")
+        current_datetime = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+        save_location = config['model_path']
+        model_name = config['model_name'] + '-' + current_datetime + '-fold-{}'.format(id_fold+1)
+        if not os.path.exists(save_location):
+            os.makedirs(save_location)
+        save_location = os.path.join(save_location, model_name)
+        torch.save(model, save_location)
+
+        cv_score.append(eval_model(model, eval_dataloader, optimizer, criterion, device))
 
 
 if __name__ == '__main__':

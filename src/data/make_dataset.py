@@ -16,8 +16,9 @@ from tokenizers.trainers import BpeTrainer
 @click.command()
 @click.argument('input_filepath', type=click.Path(exists=True))
 @click.argument('output_filepath', type=click.Path())
+@click.argument('model_filepath', type=click.Path(), default=None)
 @click.argument('model', default="custom_model")
-def main(input_filepath, output_filepath, model):
+def main(input_filepath, output_filepath, model, model_filepath):
     """ Runs data processing scripts to turn raw data from (../raw) into
         cleaned data ready to be analyzed (saved in ../processed).
     """
@@ -38,10 +39,8 @@ def main(input_filepath, output_filepath, model):
         trainer = BpeTrainer(vocab_size=8000, min_frequency=2,
                              special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"],
                              show_progress=True)
-        tokenizer_folder = output_filepath + "/tokenizer-{}".format(model)
-        os.makedirs(tokenizer_folder)
         tokenizer.train(trainer, [tokenizer_dataset_path])
-        tokenizer.save(tokenizer_folder + "/" + model + ".json")
+        tokenizer.save(model_filepath + "/" + model + ".json")
     train = extract_span(train)
     train.to_pickle(output_filepath + '/train_processed.pickle')
     test.to_pickle(output_filepath + '/test_processed.pickle')

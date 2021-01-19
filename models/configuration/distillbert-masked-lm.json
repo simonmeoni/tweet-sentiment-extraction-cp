@@ -3,9 +3,10 @@
   "max_length": 512,
   "num_attn_heads": 12,
   "n_layers": 6,
-  "hidden_dim": 3072,
+  "hidden_dim": 512,
   "lr": 1e-4,
-  "num_epochs": 5,
+  "num_epochs": 1,
+  "folds": 4,
   "model_name": "distillbert-tweet-se",
-  "model_path": "tweet-sentiment-extraction-cp/models/pretrained"
+  "model_path": "/home/simon/PycharmProjects/tweet-sentiment-extraction-cp/models/pretrained/distillbert/"
 }
