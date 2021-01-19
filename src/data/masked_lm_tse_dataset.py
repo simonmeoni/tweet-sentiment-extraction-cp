@@ -6,26 +6,32 @@ class MaskedLMTweetDataset(Dataset):
     def __init__(self, txt, tokenizer):
         self.tokenizer = tokenizer
         self.dataset = []
+        global PAD_ID
+        PAD_ID = tokenizer.token_to_id("[PAD]")
         with open(txt) as f:
             for line in f:
-                self.dataset.append(line)
+                self.dataset.append(line[:-1])
 
     def __getitem__(self, index):
         line = self.dataset[index]
         return {
-            'inputs_ids': line,
+            'inputs_ids': self.tokenizer.encode(line).ids,
             'attention_mask': []
         }
+
+    def __len__(self):
+        return len(self.dataset)
 
 
 def masked_lm_collate(batch):
     max_len = max(len(el['inputs_ids']) for el in batch)
-    res_batch = {}
-    for elem in batch:
-            for key, value in elem.items():
-                padded_list = [0] * (max_len - len(value))
-                padded_vector = torch.cat((value, torch.LongTensor(padded_list)))
-                res_batch[key].append(padded_vector)
+    res_batch = {'inputs_ids': [], 'attention_mask': []}
+    for input_batch in batch:
+        vector = input_batch['inputs_ids']
+        padded_list = vector + [PAD_ID] * (max_len - len(vector))
+        res_batch['inputs_ids'].append(torch.tensor(padded_list))
+        res_batch['attention_mask'].append(torch.tensor([1 if token != PAD_ID else 0
+                                                         for token in padded_list]))
     res_batch = {k: (torch.stack(v) if isinstance(v[0], torch.Tensor) else v)
                  for k, v in res_batch.items()}
     return res_batch

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import os
 import re
 from concurrent import futures
 from pathlib import Path
@@ -8,6 +9,7 @@ import click
 import pandas as pd
 from dotenv import find_dotenv, load_dotenv
 from tokenizers import Tokenizer, models
+from tokenizers.pre_tokenizers import Whitespace
 from tokenizers.trainers import BpeTrainer
 
 
@@ -27,17 +29,19 @@ def main(input_filepath, output_filepath, model):
     train = lowercase_and_replace_url(train, 'selected_text')
     test = lowercase_and_replace_url(test, 'text')
     if model != '':
-        tokenizer_dataset_path = output_filepath + '/tokenizer-{}.txt'.format(model)
+        tokenizer_dataset_path = output_filepath + '/dataset.txt'
         write_learning_dataset(tokenizer_dataset_path,
                                pd.concat([train, test], ignore_index=True))
 
         tokenizer = Tokenizer(models.BPE())
-
+        tokenizer.pre_tokenizer = Whitespace()
         trainer = BpeTrainer(vocab_size=8000, min_frequency=2,
                              special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"],
                              show_progress=True)
+        tokenizer_folder = output_filepath + "/tokenizer-{}".format(model)
+        os.makedirs(tokenizer_folder)
         tokenizer.train(trainer, [tokenizer_dataset_path])
-        tokenizer.save((output_filepath + '/tokenizer-{}.json').format(model), True)
+        tokenizer.save(tokenizer_folder + "/" + model + ".json")
     train = extract_span(train)
     train.to_pickle(output_filepath + '/train_processed.pickle')
     test.to_pickle(output_filepath + '/test_processed.pickle')
