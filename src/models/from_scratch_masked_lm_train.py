@@ -19,7 +19,6 @@ from torch.utils.data import DataLoader
 from src.data.masked_lm_tse_dataset import MaskedLMTweetDataset, masked_lm_collate
 from sklearn.model_selection import KFold
 
-wandb.init(project="tweet-se-competition")
 
 def init_model(tokenizer, config, device):
     print("🍌 Loading model...")
@@ -95,21 +94,55 @@ def eval_model(model, dataloader, optimizer, criterion, device, id_fold):
 
 
 @click.command()
-@click.argument('tokenizer_path', type=click.Path(exists=True))
-@click.argument('dataset_path', type=click.Path(exists=True))
-@click.argument('model_parameters_path', type=click.Path(exists=True))
-def main(tokenizer_path, dataset_path, model_parameters_path):
-    with open(model_parameters_path, "r") as file:
-        config = json.load(file)
+@click.option('--lr')
+@click.option('--batch_size')
+@click.option('--max_length')
+@click.option('--num_attn_heads')
+@click.option('--n_layers')
+@click.option('--hidden_dim')
+@click.option('--num_epochs')
+@click.option('--folds')
+@click.option('--model_name')
+@click.option('--model_path')
+@click.option('--tokenizer_path')
+@click.option('--dataset_path')
+def main(lr,
+         batch_size,
+         max_length,
+         num_attn_heads,
+         n_layers,
+         hidden_dim,
+         num_epochs,
+         folds,
+         model_name,
+         model_path,
+         tokenizer_path,
+         dataset_path):
+    hyperparameter_defaults = dict(
+        lr=float(lr),
+        batch_size=int(batch_size),
+        max_length=int(max_length),
+        num_attn_heads=int(num_attn_heads),
+        n_layers=int(n_layers),
+        hidden_dim=int(hidden_dim),
+        num_epochs=int(num_epochs),
+        folds=int(folds),
+        model_name=model_name,
+        model_path=model_path,
+        tokenizer_path=tokenizer_path,
+        dataset_path=dataset_path,
+    )
+    wandb.init(project="tweet-se-competition", config=hyperparameter_defaults)
+    config = wandb.config
 
     txt_dataset = []
-    with open(dataset_path) as file:
+    with open(config['dataset_path']) as file:
         for line in file:
             txt_dataset.append(line[:-1])
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cpu' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)
-    tokenizer = init_tokenizer(tokenizer_path)
+    tokenizer = init_tokenizer(config['tokenizer_path'])
     criterion = nn.NLLLoss(ignore_index=tokenizer.token_to_id('[PAD]'))
     folds = KFold(n_splits=config['folds'], shuffle=False)
     cv_score = []
@@ -136,7 +169,7 @@ def main(tokenizer_path, dataset_path, model_parameters_path):
         print("Saving model ..")
         current_datetime = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
         save_location = config['model_path']
-        model_name = config['model_name'] + '-' + current_datetime + '-fold-{}'.format(id_fold+1)
+        model_name = config['model_name'] + '-' + current_datetime + '-fold-{}'.format(id_fold + 1)
         if not os.path.exists(save_location):
             os.makedirs(save_location)
         save_location = os.path.join(save_location, model_name)
@@ -144,7 +177,7 @@ def main(tokenizer_path, dataset_path, model_parameters_path):
 
         score = eval_model(model, eval_dataloader, optimizer, criterion, device, id_fold)
         cv_score.append(score)
-        wandb.log({"CV score ": score})
+        wandb.log({"cv-score": score})
     print('CV score : {}'.format(cv_score))
 
 
