@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import logging
-import os
 import re
 from concurrent import futures
 from pathlib import Path

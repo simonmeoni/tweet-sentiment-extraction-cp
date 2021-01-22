@@ -1,23 +1,23 @@
-import json
 import logging
 import os
 from datetime import datetime
 from pathlib import Path
-import glob
 
 import click
 import torch
 import torch.nn as nn
 import torch.nn.functional as f
-import wandb
 import torch.optim as optim
-from dotenv import find_dotenv, load_dotenv
 from numpy import mean
+from dotenv import find_dotenv, load_dotenv
+from sklearn.model_selection import KFold
+from torch.utils.data import DataLoader
 from tokenizers import Tokenizer
 from transformers import DistilBertForMaskedLM, DistilBertConfig
-from torch.utils.data import DataLoader
-from src.data.masked_lm_tse_dataset import MaskedLMTweetDataset, masked_lm_collate
-from sklearn.model_selection import KFold
+from src.data.masked_lm_tse_dataset import MaskedLMTweetDataset
+import wandb
+
+# pylint: disable=too-many-arguments, too-many-locals
 
 
 def init_model(tokenizer, config, device):
@@ -73,7 +73,6 @@ def train_model(model, dataloader, optimizer, criterion, device, id_fold):
         optimizer.step()
         wandb.log({"loss {}".format(id_fold): loss.item()})
         epoch_loss.append(loss.item())
-        break
     print('train epoch loss : {}'.format(mean(epoch_loss)))
 
 
@@ -94,7 +93,7 @@ def eval_model(model, dataloader, optimizer, criterion, device, id_fold):
 
 
 @click.command()
-@click.option('--lr')
+@click.option('--learning_rate')
 @click.option('--batch_size')
 @click.option('--max_length')
 @click.option('--num_attn_heads')
@@ -106,7 +105,7 @@ def eval_model(model, dataloader, optimizer, criterion, device, id_fold):
 @click.option('--model_path')
 @click.option('--tokenizer_path')
 @click.option('--dataset_path')
-def main(lr,
+def main(learning_rate,
          batch_size,
          max_length,
          num_attn_heads,
@@ -119,7 +118,7 @@ def main(lr,
          tokenizer_path,
          dataset_path):
     hyperparameter_defaults = dict(
-        lr=float(lr),
+        lr=float(learning_rate),
         batch_size=int(batch_size),
         max_length=int(max_length),
         num_attn_heads=int(num_attn_heads),
@@ -133,23 +132,22 @@ def main(lr,
         dataset_path=dataset_path,
     )
     wandb.init(project="tweet-se-competition", config=hyperparameter_defaults)
-    config = wandb.config
 
     txt_dataset = []
-    with open(config['dataset_path']) as file:
+    with open(hyperparameter_defaults['dataset_path']) as file:
         for line in file:
             txt_dataset.append(line[:-1])
 
-    device = torch.device('cpu' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)
-    tokenizer = init_tokenizer(config['tokenizer_path'])
+    tokenizer = init_tokenizer(hyperparameter_defaults['tokenizer_path'])
     criterion = nn.NLLLoss(ignore_index=tokenizer.token_to_id('[PAD]'))
-    folds = KFold(n_splits=config['folds'], shuffle=False)
+    folds = KFold(n_splits=hyperparameter_defaults['folds'], shuffle=False)
     cv_score = []
     for id_fold, fold in enumerate(folds.split(txt_dataset)):
         print('beginning fold n°{}'.format(id_fold + 1))
-        model = init_model(tokenizer, config, device)
-        optimizer = optim.Adam(model.parameters(), lr=config['lr'])
+        model = init_model(tokenizer, hyperparameter_defaults, device)
+        optimizer = optim.Adam(model.parameters(), lr=hyperparameter_defaults['lr'])
 
         train_fold, eval_fold = fold
         train_fold = [txt_dataset[idx_train] for idx_train in train_fold]
@@ -157,24 +155,29 @@ def main(lr,
         train_dataset = MaskedLMTweetDataset(train_fold, tokenizer)
         eval_dataset = MaskedLMTweetDataset(eval_fold, tokenizer)
 
-        train_dataloader = DataLoader(dataset=train_dataset, batch_size=config["batch_size"],
-                                      shuffle=False, drop_last=True, collate_fn=masked_lm_collate)
-        eval_dataloader = DataLoader(dataset=eval_dataset, batch_size=config["batch_size"],
-                                     shuffle=False, drop_last=True, collate_fn=masked_lm_collate)
+        train_dataloader = DataLoader(dataset=train_dataset,
+                                      batch_size=hyperparameter_defaults["batch_size"],
+                                      shuffle=False, drop_last=True,
+                                      collate_fn=train_dataset.masked_lm_collate)
+        eval_dataloader = DataLoader(dataset=eval_dataset,
+                                     batch_size=hyperparameter_defaults["batch_size"],
+                                     shuffle=False, drop_last=True,
+                                     collate_fn=eval_dataset.masked_lm_collate)
 
         wandb.watch(model)
-        for epoch in range(config['num_epochs']):
+        for epoch in range(hyperparameter_defaults['num_epochs']):
             print("Starting epoch", epoch + 1)
             train_model(model, train_dataloader, optimizer, criterion, device, id_fold)
         print("Saving model ..")
         current_datetime = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-        save_location = config['model_path']
-        model_name = config['model_name'] + '-' + current_datetime + '-fold-{}'.format(id_fold + 1)
+        save_location = hyperparameter_defaults['model_path']
+        model_name = hyperparameter_defaults['model_name'] + '-' + current_datetime + \
+                     '-fold-{}'.format(id_fold + 1)
         if not os.path.exists(save_location):
             os.makedirs(save_location)
         save_location = os.path.join(save_location, model_name)
         torch.save(model, save_location)
-
+        wandb.save(save_location)
         score = eval_model(model, eval_dataloader, optimizer, criterion, device, id_fold)
         cv_score.append(score)
         wandb.log({"cv-score": score})
