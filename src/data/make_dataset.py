@@ -8,14 +8,16 @@ import click
 import pandas as pd
 from dotenv import find_dotenv, load_dotenv
 from tokenizers import Tokenizer, models
+from tokenizers.pre_tokenizers import Whitespace
 from tokenizers.trainers import BpeTrainer
 
 
 @click.command()
 @click.argument('input_filepath', type=click.Path(exists=True))
 @click.argument('output_filepath', type=click.Path())
+@click.argument('model_filepath', type=click.Path(), default=None)
 @click.argument('model', default="custom_model")
-def main(input_filepath, output_filepath, model):
+def main(input_filepath, output_filepath, model, model_filepath):
     """ Runs data processing scripts to turn raw data from (../raw) into
         cleaned data ready to be analyzed (saved in ../processed).
     """
@@ -27,18 +29,20 @@ def main(input_filepath, output_filepath, model):
     train = lowercase_and_replace_url(train, 'selected_text')
     test = lowercase_and_replace_url(test, 'text')
     if model != '':
-        write_learning_dataset(output_filepath + '/tokenizer_dataset.txt',
+        tokenizer_dataset_path = output_filepath + '/dataset.txt'
+        write_learning_dataset(tokenizer_dataset_path,
                                pd.concat([train, test], ignore_index=True))
 
         tokenizer = Tokenizer(models.BPE())
+        tokenizer.pre_tokenizer = Whitespace()
         trainer = BpeTrainer(vocab_size=8000, min_frequency=2,
                              special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"],
                              show_progress=True)
-        tokenizer.train([output_filepath + '/tokenizer_dataset.txt'], trainer=trainer)
-        tokenizer.save(output_filepath + "/from_scratch-tokenizer.json")
+        tokenizer.train(trainer, [tokenizer_dataset_path])
+        tokenizer.save(model_filepath + "/tokenizer-" + model + ".json")
     train = extract_span(train)
-    train.to_pickle(output_filepath + '/train_processed_{}.pickle'.format(model))
-    test.to_pickle(output_filepath + '/test_processed_{}.pickle'.format(model))
+    train.to_pickle(output_filepath + '/train_processed.pickle')
+    test.to_pickle(output_filepath + '/test_processed.pickle')
 
 
 def extract_span(dataframe):
