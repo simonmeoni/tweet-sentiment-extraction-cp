@@ -1,0 +1,36 @@
+name: distillbert_masked_lm
+program: /home/simon/PycharmProjects/tweet-sentiment-extraction-cp/src/models/from_scratch_masked_lm_train.py
+method: grid
+metric:
+  name: cv-score
+  goal: minimize
+parameters:
+  learning_rate:
+    value: 0.0001
+  batch_size:
+     values: [64, 128]
+  max_length:
+    value: 512
+  num_attn_heads:
+    value: 12
+  n_layers:
+    value: 6
+  hidden_dim:
+    value: 3072
+  num_epochs:
+    value: 1
+  folds:
+    value: 5
+  model_name:
+    value: distillbert-tweet-se
+  model_path:
+    value: /home/simon/PycharmProjects/tweet-sentiment-extraction-cp/models/pretrained/distillbert
+  tokenizer_path:
+    value: /home/simon/PycharmProjects/tweet-sentiment-extraction-cp/models/pretrained/distillbert/tokenizer-distillbert-twitter-se.json
+  dataset_path:
+    value: /home/simon/PycharmProjects/tweet-sentiment-extraction-cp/data/processed/dataset.txt
+
+command:
+  - /home/simon/miniconda3/envs/tweet-cp/bin/python3
+  - ${program}
+  - ${args}
