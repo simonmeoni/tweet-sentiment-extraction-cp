@@ -91,44 +91,28 @@ def eval_model(model, classifier, dataloader, optimizer, criterion, device, id_f
 @click.command()
 @click.option('--learning_rate')
 @click.option('--batch_size')
-@click.option('--max_length')
-@click.option('--num_attn_heads')
-@click.option('--n_layers')
-@click.option('--hidden_dim')
 @click.option('--num_epochs')
 @click.option('--folds')
 @click.option('--model_name')
 @click.option('--model_path')
-@click.option('--tokenizer_path')
 @click.option('--dataset_path')
 def main(learning_rate,
          batch_size,
-         max_length,
-         num_attn_heads,
-         n_layers,
-         hidden_dim,
          num_epochs,
          folds,
          model_name,
          model_path,
-         tokenizer_path,
          dataset_path):
     hyperparameter_defaults = dict(
         lr=float(learning_rate),
         batch_size=int(batch_size),
-        max_length=int(max_length),
-        num_attn_heads=int(num_attn_heads),
-        n_layers=int(n_layers),
-        hidden_dim=int(hidden_dim),
         num_epochs=int(num_epochs),
         folds=int(folds),
         model_name=model_name,
         model_path=model_path,
-        tokenizer_path=tokenizer_path,
-        dataset_path=dataset_path,
     )
     wandb.init(project="tweet-se-competition", config=hyperparameter_defaults)
-    dataset = pd.read_pickle(dataset_path)
+    dataset = pd.read_pickle(dataset_path)[:200]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)
     print("Using tokenizer from model : ", model_name)
@@ -164,7 +148,7 @@ def main(learning_rate,
         current_datetime = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
         save_location = hyperparameter_defaults['model_path']
         model_name = hyperparameter_defaults['model_name'] + '-' + current_datetime + \
-                     '-fold-{}'.format(id_fold + 1)
+                     '-fold-{}'.format(id_fold + 1) + '.bin'
         if not os.path.exists(save_location):
             os.makedirs(save_location)
         save_location = os.path.join(save_location, model_name)
