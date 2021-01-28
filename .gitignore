@@ -143,7 +143,7 @@ dmypy.json
 
 # pytype static type analyzer
 .pytype/
-
+local_sweep.yaml
 # Cython debug symbols
 cython_debug/
 wandb/

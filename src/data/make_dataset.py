@@ -47,7 +47,7 @@ def main(input_filepath, output_filepath, model, model_filepath):
 
 def extract_span(dataframe):
     dataframe["span"] = ""
-    with futures.ThreadPoolExecutor(max_workers=1) as executor:
+    with futures.ThreadPoolExecutor(max_workers=10) as executor:
         future_text = {
             executor.submit(extract_span_thread, df_entry, df_idx):
                 df_entry for df_idx, df_entry in enumerate(dataframe.iloc)}
@@ -90,6 +90,7 @@ def lowercase_and_replace_url(dataframe, column):
 def lowercase_replace_url_thread(entry, df_idx, column):
     text = entry[column].lower().replace("`", "'").strip()
     text = re.sub(r'http[s]?://\S+', '[URL]', text).strip()
+    text = text.replace("ï¿½", "'")
     return text, df_idx
 
 

@@ -1,5 +1,5 @@
 name: distillbert_masked_lm
-program: /home/simon/PycharmProjects/tweet-sentiment-extraction-cp/src/models/from_scratch_masked_lm_train.py
+program: ${program_path}
 method: grid
 metric:
   name: cv-score

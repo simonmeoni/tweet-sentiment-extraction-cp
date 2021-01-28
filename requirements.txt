@@ -32,3 +32,7 @@ python-dotenv~=0.15.0
 setuptools~=49.6.0
 torch~=1.7.1
 transformers~=4.2.1
+wandb~=0.10.14
+numpy~=1.19.5
+sklearn~=0.0
+scikit-learn~=0.24.0
