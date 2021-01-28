@@ -1,8 +1,12 @@
+import logging
 import torch
 import pandas as pd
 from tqdm import tqdm
 from torch.utils.data import Dataset
 
+LOG_FMT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+logging.basicConfig(level=logging.INFO, format=LOG_FMT)
+logger = logging.getLogger(__name__)
 
 class TokenClassificationTweetDataset(Dataset):
     def __init__(self, dataset, tokenizer):
@@ -46,7 +50,7 @@ class TokenClassificationTweetDataset(Dataset):
         return res_batch
 
     def init_dataset(self, dataset):
-        print('Initialize Dataset ....')
+        logger.info('Initialize Dataset ....')
         new_dataset = pd.concat([dataset,
                                  pd.DataFrame(columns=["selected_tokens", "tokens"])])
         for df_idx, df_entry in tqdm(new_dataset.iterrows(),
