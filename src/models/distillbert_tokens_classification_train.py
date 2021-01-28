@@ -19,18 +19,19 @@ import wandb
 
 # pylint: disable=too-many-arguments, too-many-locals
 from src.data.token_classification_tse_dataset import TokenClassificationTweetDataset
+logger = logging.getLogger(__name__)
 
 
 def init_model(model_name, device):
-    print("🍌 Loading model...")
+    logger.info("🍌 Loading model...")
     model = AutoModel.from_pretrained(model_name)
     model.to(device)
-    print(f'The model has {count_parameters(model):,} trainable parameters')
+    logger.info(f'The model has {count_parameters(model):,} trainable parameters')
     return model
 
 
 def init_tokenizer(model_name):
-    print("🍌 Loading tokenizer...")
+    logger.info("🍌 Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, )
     return tokenizer
 
@@ -68,7 +69,7 @@ def train_model(model, classifier, dataloader, optimizer, criterion, device, id_
         optimizer.step()
         wandb.log({"loss {}".format(id_fold): loss.item()})
         epoch_loss.append(loss.item())
-    print('train epoch loss : {}'.format(mean(epoch_loss)))
+    logger.info('train epoch loss : {}'.format(mean(epoch_loss)))
 
 
 def eval_model(model, classifier, dataloader, optimizer, criterion, device, id_fold):
@@ -114,14 +115,14 @@ def main(learning_rate,
     wandb.init(project="tweet-se-competition", config=hyperparameter_defaults)
     dataset = pd.read_pickle(dataset_path)[:200]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print("Using device:", device)
-    print("Using tokenizer from model : ", model_name)
+    logger.info("Using device: {}".format(device))
+    logger.info("Using tokenizer from model : {}".format(model_name))
     tokenizer = init_tokenizer(hyperparameter_defaults['model_name'])
     criterion = nn.NLLLoss(ignore_index=tokenizer.pad_token_id)
     folds = KFold(n_splits=hyperparameter_defaults['folds'], shuffle=False)
     cv_score = []
     for id_fold, fold in enumerate(folds.split(dataset[dataset['sentiment'] != 'neutral'])):
-        print('beginning fold n°{}'.format(id_fold + 1))
+        logger.info('beginning fold n°{}'.format(id_fold + 1))
         model = init_model(hyperparameter_defaults['model_name'], device)
         classifier = FineTuningClassifier(model.config.dim)
         optimizer = optim.Adam(model.parameters(), lr=hyperparameter_defaults['lr'])
@@ -142,9 +143,9 @@ def main(learning_rate,
 
         wandb.watch(model)
         for epoch in range(hyperparameter_defaults['num_epochs']):
-            print("Starting epoch", epoch + 1)
+            logger.info("Starting epoch {}".format(epoch + 1))
             train_model(model, classifier, train_dataloader, optimizer, criterion, device, id_fold)
-        print("Saving model ..")
+        logger.info("Saving model ..")
         current_datetime = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
         save_location = hyperparameter_defaults['model_path']
         model_name = hyperparameter_defaults['model_name'] + '-' + current_datetime + \
@@ -158,12 +159,10 @@ def main(learning_rate,
                            id_fold)
         cv_score.append(score)
         wandb.log({"cv-score": score})
-    print('CV score : {}'.format(cv_score))
+    logger.info('CV score : {}'.format(cv_score))
 
 
 if __name__ == '__main__':
-    LOG_FMT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    logging.basicConfig(level=logging.INFO, format=LOG_FMT)
     # not used in this stub but often useful for finding various files
     project_dir = Path(__file__).resolve().parents[2]
     # find .env automagically by walking up directories until it's found, then

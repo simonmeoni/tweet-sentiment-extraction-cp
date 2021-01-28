@@ -18,10 +18,12 @@ from src.data.masked_lm_tse_dataset import MaskedLMTweetDataset
 import wandb
 
 # pylint: disable=too-many-arguments, too-many-locals
-
+LOG_FMT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+logging.basicConfig(level=logging.INFO, format=LOG_FMT)
+logger = logging.getLogger(__name__)
 
 def init_model(tokenizer, config, device):
-    print("🍌 Loading model...")
+    logger.info("🍌 Loading model...")
     max_length = config["max_length"]
     model_parameter_path = DistilBertConfig(vocab_size=tokenizer.get_vocab_size(),
                                             max_position_embeddings=max_length,
@@ -34,12 +36,12 @@ def init_model(tokenizer, config, device):
                                             pad_token_id=0)
     model = DistilBertForMaskedLM(config=model_parameter_path)
     model.to(device)
-    print(f'The model has {count_parameters(model):,} trainable parameters')
+    logger.info(f'The model has {count_parameters(model):} trainable parameters')
     return model
 
 
 def init_tokenizer(tokenizer_path):
-    print("🍌 Loading tokenizer...")
+    logger.info("🍌 Loading tokenizer...")
     tokenizer = Tokenizer.from_file(tokenizer_path)
     return tokenizer
 
@@ -73,7 +75,7 @@ def train_model(model, dataloader, optimizer, criterion, device, id_fold):
         optimizer.step()
         wandb.log({"loss {}".format(id_fold): loss.item()})
         epoch_loss.append(loss.item())
-    print('train epoch loss : {}'.format(mean(epoch_loss)))
+    logger.info('train epoch loss : {}'.format(mean(epoch_loss)))
 
 
 def eval_model(model, dataloader, optimizer, criterion, device, id_fold):
@@ -139,13 +141,13 @@ def main(learning_rate,
             txt_dataset.append(line[:-1])
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print("Using device:", device)
+    logger.info("Using device : {}".format(device))
     tokenizer = init_tokenizer(hyperparameter_defaults['tokenizer_path'])
     criterion = nn.NLLLoss(ignore_index=tokenizer.token_to_id('[PAD]'))
     folds = KFold(n_splits=hyperparameter_defaults['folds'], shuffle=False)
     cv_score = []
     for id_fold, fold in enumerate(folds.split(txt_dataset)):
-        print('beginning fold n°{}'.format(id_fold + 1))
+        logger.info('beginning fold n°{}'.format(id_fold + 1))
         model = init_model(tokenizer, hyperparameter_defaults, device)
         optimizer = optim.Adam(model.parameters(), lr=hyperparameter_defaults['lr'])
 
@@ -166,9 +168,9 @@ def main(learning_rate,
 
         wandb.watch(model)
         for epoch in range(hyperparameter_defaults['num_epochs']):
-            print("Starting epoch", epoch + 1)
+            logger.info("Starting epoch {}".format(epoch + 1))
             train_model(model, train_dataloader, optimizer, criterion, device, id_fold)
-        print("Saving model ..")
+        logger.info("Saving model ..")
         current_datetime = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
         save_location = hyperparameter_defaults['model_path']
         model_name = hyperparameter_defaults['model_name'] + '-' + current_datetime + \
@@ -181,12 +183,10 @@ def main(learning_rate,
         score = eval_model(model, eval_dataloader, optimizer, criterion, device, id_fold)
         cv_score.append(score)
         wandb.log({"cv-score": score})
-    print('CV score : {}'.format(cv_score))
+    logger.info('CV score : {}'.format(cv_score))
 
 
 if __name__ == '__main__':
-    LOG_FMT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    logging.basicConfig(level=logging.INFO, format=LOG_FMT)
     # not used in this stub but often useful for finding various files
     project_dir = Path(__file__).resolve().parents[2]
     # find .env automagically by walking up directories until it's found, then
