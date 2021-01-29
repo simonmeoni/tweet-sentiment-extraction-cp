@@ -15,12 +15,15 @@ from torch.utils.data import DataLoader
 from tokenizers import Tokenizer
 from transformers import DistilBertForMaskedLM, DistilBertConfig
 from src.data.masked_lm_tse_dataset import MaskedLMTweetDataset
+from src.models.distillbert_tokens_classification_train import count_parameters
 import wandb
 
 # pylint: disable=too-many-arguments, too-many-locals
+
 LOG_FMT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOG_FMT)
 logger = logging.getLogger(__name__)
+
 
 def init_model(tokenizer, config, device):
     logger.info("🍌 Loading model...")
@@ -44,10 +47,6 @@ def init_tokenizer(tokenizer_path):
     logger.info("🍌 Loading tokenizer...")
     tokenizer = Tokenizer.from_file(tokenizer_path)
     return tokenizer
-
-
-def count_parameters(mdl):
-    return sum(p.numel() for p in mdl.parameters() if p.requires_grad)
 
 
 def compute_loss(predictions, targets, criterion=None):
