@@ -14,14 +14,14 @@ from numpy import mean
 from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModel
-
+from src.data.token_classification_tse_dataset import TokenClassificationTweetDataset
+from src.models.utils import count_parameters, jaccard_score
 import wandb
 
-# pylint: disable=too-many-arguments, too-many-locals
-from src.data.token_classification_tse_dataset import TokenClassificationTweetDataset
 logger = logging.getLogger(__name__)
 
 
+# pylint: disable=too-many-arguments, too-many-locals
 def init_model(model_name, device):
     logger.info("🍌 Loading model...")
     model = AutoModel.from_pretrained(model_name)
@@ -34,10 +34,6 @@ def init_tokenizer(model_name):
     logger.info("🍌 Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, )
     return tokenizer
-
-
-def count_parameters(mdl):
-    return sum(p.numel() for p in mdl.parameters() if p.requires_grad)
 
 
 def compute_loss(predictions, targets, criterion=None):
@@ -53,10 +49,17 @@ class FineTuningClassifier(nn.Module):
         return self.conv1d(z_n)
 
 
+def predictions_to_str(predictions, x_obs, dataloader):
+    arg_predictions = predictions.transpose(1, 2).argmax(dim=2)
+    return dataloader.dataset.tokenizer.batch_decode(x_obs.masked_fill(arg_predictions == 0, 0),
+                                                     skip_special_tokens=True)
+
+
 def train_model(model, classifier, dataloader, optimizer, criterion, device, id_fold):
     model.train()
     classifier.train()
     epoch_loss = []
+    batch_jaccard_scores = []
     for batch in dataloader:
         optimizer.zero_grad()
         out = model(input_ids=batch['x_obs'].to(device),
@@ -69,13 +72,21 @@ def train_model(model, classifier, dataloader, optimizer, criterion, device, id_
         optimizer.step()
         wandb.log({"loss {}".format(id_fold): loss.item()})
         epoch_loss.append(loss.item())
+        batch_prediction_str = predictions_to_str(predictions, batch['x_obs'], dataloader)
+        it_jaccard_scores = [jaccard_score(sel_text, batch_prediction_str[idx_sel_text])
+                             for idx_sel_text, sel_text in enumerate(batch['selected_text'])]
+        batch_jaccard_scores.append(it_jaccard_scores)
+        wandb.log({"jaccard score {}".format(id_fold): mean(it_jaccard_scores)})
+
     logger.info('train epoch loss : {}'.format(mean(epoch_loss)))
+    logger.info('train jaccard score: {}'.format(mean(batch_jaccard_scores)))
 
 
-def eval_model(model, classifier, dataloader, optimizer, criterion, device, id_fold):
+def eval_model(model, classifier, dataloader, optimizer, criterion, device):
     model.eval()
     classifier.eval()
     epoch_loss = []
+    batch_jaccard_scores = []
     for batch in dataloader:
         optimizer.zero_grad()
         out = model(input_ids=batch['x_obs'].to(device),
@@ -84,9 +95,11 @@ def eval_model(model, classifier, dataloader, optimizer, criterion, device, id_f
         predictions = f.log_softmax(prediction_scores, dim=2)
         loss = compute_loss(predictions, batch['target'], criterion)
         epoch_loss.append(loss.item())
-        wandb.log({"CV loss {}".format(id_fold): mean(loss.item())})
-        break
-    return mean(epoch_loss)
+        batch_prediction_str = predictions_to_str(predictions, batch['x_obs'], dataloader)
+        batch_jaccard_scores.append([jaccard_score(sel_text, batch_prediction_str[idx_sel_text])
+                                     for idx_sel_text, sel_text in
+                                     enumerate(batch['selected_text'])])
+    return mean(epoch_loss), mean(batch_jaccard_scores)
 
 
 @click.command()
@@ -120,7 +133,8 @@ def main(learning_rate,
     tokenizer = init_tokenizer(hyperparameter_defaults['model_name'])
     criterion = nn.NLLLoss(ignore_index=tokenizer.pad_token_id)
     folds = KFold(n_splits=hyperparameter_defaults['folds'], shuffle=False)
-    cv_score = []
+    cv_scores_loss = []
+    cv_scores_jaccard = []
     for id_fold, fold in enumerate(folds.split(dataset[dataset['sentiment'] != 'neutral'])):
         logger.info('beginning fold n°{}'.format(id_fold + 1))
         model = init_model(hyperparameter_defaults['model_name'], device)
@@ -155,11 +169,13 @@ def main(learning_rate,
         save_location = os.path.join(save_location, model_name)
         torch.save({'model': model, 'classfier': classifier}, save_location)
         wandb.save(save_location)
-        score = eval_model(model, classifier, eval_dataloader, optimizer, criterion, device,
-                           id_fold)
-        cv_score.append(score)
-        wandb.log({"cv-score": score})
-    logger.info('CV score : {}'.format(cv_score))
+        cv_score_loss, cv_score_jaccard = eval_model(model, classifier, eval_dataloader, optimizer,
+                                                     criterion, device)
+        cv_scores_loss.append(cv_score_loss)
+        wandb.log({"cv score loss": cv_score_loss})
+        wandb.log({"cv score jaccard": cv_score_jaccard})
+    logger.info('CV score loss : {}'.format(cv_scores_loss))
+    logger.info('CV score  jaccard : {}'.format(cv_scores_jaccard))
 
 
 if __name__ == '__main__':
