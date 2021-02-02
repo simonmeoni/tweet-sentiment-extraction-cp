@@ -1,0 +1,26 @@
+name: distillbert_uncase
+program: ${program_path}
+method: grid
+metric:
+  name: cv-score
+  goal: minimize
+parameters:
+  learning_rate:
+    value: [5e-5, 3e-5, 2e-5]
+  batch_size:
+     values: [32, 64]
+  num_epochs:
+    value: [2, 3, 4]
+  folds:
+    value: 4
+  model_name:
+    value: distillbert-uncase
+  model_path:
+    value: ${model_path}
+  dataset_path:
+    value: ${dataset_path}
+
+command:
+  - ${env}
+  - ${program}
+  - ${args}
