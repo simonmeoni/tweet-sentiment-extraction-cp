@@ -6,21 +6,20 @@ metric:
   goal: minimize
 parameters:
   learning_rate:
-    value: [5e-5, 3e-5, 2e-5]
+    values: [5e-5, 3e-5, 2e-5]
   batch_size:
      values: [32, 64]
   num_epochs:
-    value: [2, 3, 4]
+    values: [2, 3, 4]
   folds:
     value: 4
   model_name:
-    value: distillbert-uncase
+    value: distilbert-base-uncased
   model_path:
     value: ${model_path}
   dataset_path:
     value: ${dataset_path}
 
 command:
-  - ${env}
-  - ${program}
+  - distillbert_tokens_classification_train
   - ${args}
