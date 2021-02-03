@@ -1,3 +1,4 @@
+import gc
 import logging
 import os
 from datetime import datetime
@@ -180,6 +181,8 @@ def main(learning_rate,
         torch.save(model, save_location)
         wandb.save(save_location)
         score = eval_model(model, eval_dataloader, optimizer, criterion, device, id_fold)
+        del model
+        gc.collect()
         cv_score.append(score)
         wandb.log({"cv-score": score})
     logger.info('CV score : {}'.format(cv_score))

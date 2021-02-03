@@ -1,3 +1,4 @@
+import gc
 import logging
 import os
 from datetime import datetime
@@ -66,13 +67,13 @@ def train_model(model, classifier, dataloader, optimizer, criterion, device, id_
                     attention_mask=batch['attention_mask'].to(device))
         prediction_scores = classifier(out.last_hidden_state.transpose(1, 2))
         predictions = f.log_softmax(prediction_scores, dim=2)
-        loss = compute_loss(predictions, batch['target'], criterion)
+        loss = compute_loss(predictions, batch['target'].to(device), criterion)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         wandb.log({"loss {}".format(id_fold): loss.item()})
         epoch_loss.append(loss.item())
-        batch_prediction_str = predictions_to_str(predictions, batch['x_obs'], dataloader)
+        batch_prediction_str = predictions_to_str(predictions.to('cpu'), batch['x_obs'], dataloader)
         it_jaccard_scores = [jaccard_score(sel_text, batch_prediction_str[idx_sel_text])
                              for idx_sel_text, sel_text in enumerate(batch['selected_text'])]
         batch_jaccard_scores.append(it_jaccard_scores)
@@ -82,23 +83,24 @@ def train_model(model, classifier, dataloader, optimizer, criterion, device, id_
     logger.info('train jaccard score: {}'.format(mean(batch_jaccard_scores)))
 
 
-def eval_model(model, classifier, dataloader, optimizer, criterion, device):
+def eval_model(model, classifier, dataloader, criterion, device):
     model.eval()
     classifier.eval()
     epoch_loss = []
     batch_jaccard_scores = []
-    for batch in dataloader:
-        optimizer.zero_grad()
-        out = model(input_ids=batch['x_obs'].to(device),
-                    attention_mask=batch['attention_mask'].to(device))
-        prediction_scores = classifier(out.last_hidden_state.transpose(1, 2))
-        predictions = f.log_softmax(prediction_scores, dim=2)
-        loss = compute_loss(predictions, batch['target'], criterion)
-        epoch_loss.append(loss.item())
-        batch_prediction_str = predictions_to_str(predictions, batch['x_obs'], dataloader)
-        batch_jaccard_scores.append([jaccard_score(sel_text, batch_prediction_str[idx_sel_text])
-                                     for idx_sel_text, sel_text in
-                                     enumerate(batch['selected_text'])])
+    with torch.no_grad():
+        for batch in dataloader:
+            out = model(input_ids=batch['x_obs'].to(device),
+                        attention_mask=batch['attention_mask'].to(device))
+            prediction_scores = classifier(out.last_hidden_state.transpose(1, 2))
+            predictions = f.log_softmax(prediction_scores, dim=2)
+            loss = compute_loss(predictions, batch['target'].to(device), criterion)
+            epoch_loss.append(loss.item())
+            batch_prediction_str = predictions_to_str(predictions.to('cpu'),
+                                                      batch['x_obs'], dataloader)
+            batch_jaccard_scores.append([jaccard_score(sel_text, batch_prediction_str[idx_sel_text])
+                                         for idx_sel_text, sel_text in
+                                         enumerate(batch['selected_text'])])
     return mean(epoch_loss), mean(batch_jaccard_scores)
 
 
@@ -126,7 +128,7 @@ def main(learning_rate,
         model_path=model_path,
     )
     wandb.init(project="tweet-se-competition", config=hyperparameter_defaults)
-    dataset = pd.read_pickle(dataset_path)[:200]
+    dataset = pd.read_pickle(dataset_path)[:400]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info("Using device: {}".format(device))
     logger.info("Using tokenizer from model : {}".format(model_name))
@@ -138,7 +140,7 @@ def main(learning_rate,
     for id_fold, fold in enumerate(folds.split(dataset[dataset['sentiment'] != 'neutral'])):
         logger.info('beginning fold n°{}'.format(id_fold + 1))
         model = init_model(hyperparameter_defaults['model_name'], device)
-        classifier = FineTuningClassifier(model.config.dim)
+        classifier = FineTuningClassifier(model.config.dim).to(device)
         optimizer = optim.Adam(model.parameters(), lr=hyperparameter_defaults['lr'])
         train_fold, eval_fold = fold
         train_fold = dataset.iloc[train_fold]
@@ -169,9 +171,14 @@ def main(learning_rate,
         save_location = os.path.join(save_location, model_name)
         torch.save({'model': model, 'classfier': classifier}, save_location)
         wandb.save(save_location)
-        cv_score_loss, cv_score_jaccard = eval_model(model, classifier, eval_dataloader, optimizer,
+        cv_score_loss, cv_score_jaccard = eval_model(model, classifier, eval_dataloader,
                                                      criterion, device)
+        del model
+        del classifier
+        gc.collect()
+        torch.cuda.empty_cache()
         cv_scores_loss.append(cv_score_loss)
+        cv_scores_jaccard.append(cv_score_jaccard)
         wandb.log({"cv score loss": cv_score_loss})
         wandb.log({"cv score jaccard": cv_score_jaccard})
     logger.info('CV score loss : {}'.format(cv_scores_loss))
