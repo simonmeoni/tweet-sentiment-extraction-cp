@@ -1,0 +1,25 @@
+name: distillbert_uncase
+program: ${program_path}
+method: grid
+metric:
+  name: cv-score
+  goal: minimize
+parameters:
+  learning_rate:
+    values: [5e-5, 3e-5, 2e-5]
+  batch_size:
+     values: [32, 64]
+  num_epochs:
+    values: [2, 3, 4]
+  folds:
+    value: 4
+  model_name:
+    value: distilbert-base-uncased
+  model_path:
+    value: ${model_path}
+  dataset_path:
+    value: ${dataset_path}
+
+command:
+  - distillbert_tokens_classification_train
+  - ${args}
